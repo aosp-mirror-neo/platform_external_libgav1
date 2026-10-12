@@ -984,8 +984,7 @@ class AutoRegressionTestLuma
     : public testing::TestWithParam<std::tuple<int, int>> {
  public:
   static_assert(bitdepth >= kBitdepth8 && bitdepth <= LIBGAV1_MAX_BITDEPTH, "");
-  using GrainType =
-      typename std::conditional<bitdepth == 8, int8_t, int16_t>::type;
+  using GrainType = std::conditional_t<bitdepth == 8, int8_t, int16_t>;
 
   AutoRegressionTestLuma() {
     FilmGrainInit_C();
@@ -1203,8 +1202,7 @@ class AutoRegressionTestChroma
     : public testing::TestWithParam<std::tuple<int, int>> {
  public:
   static_assert(bitdepth >= kBitdepth8 && bitdepth <= LIBGAV1_MAX_BITDEPTH, "");
-  using GrainType =
-      typename std::conditional<bitdepth == 8, int8_t, int16_t>::type;
+  using GrainType = std::conditional_t<bitdepth == 8, int8_t, int16_t>;
 
   AutoRegressionTestChroma() {
     AutoRegressionChromaTestParam test_param(GetParam());
@@ -1466,8 +1464,7 @@ template <int bitdepth>
 class GrainGenerationTest : public testing::TestWithParam<int> {
  protected:
   static_assert(bitdepth >= kBitdepth8 && bitdepth <= LIBGAV1_MAX_BITDEPTH, "");
-  using GrainType =
-      typename std::conditional<bitdepth == 8, int8_t, int16_t>::type;
+  using GrainType = std::conditional_t<bitdepth == 8, int8_t, int16_t>;
 
   void TestGenerateGrainLuma(int param_index, int num_runs);
 
@@ -1573,8 +1570,7 @@ class ConstructStripesTest
     : public testing::TestWithParam<std::tuple<int, int>> {
  public:
   static_assert(bitdepth >= kBitdepth8 && bitdepth <= LIBGAV1_MAX_BITDEPTH, "");
-  using GrainType =
-      typename std::conditional<bitdepth == 8, int8_t, int16_t>::type;
+  using GrainType = std::conditional_t<bitdepth == 8, int8_t, int16_t>;
 
   ConstructStripesTest() {
     FilmGrainInit_C();
@@ -1790,8 +1786,7 @@ template <int bitdepth>
 class ConstructImageTest : public testing::TestWithParam<std::tuple<int, int>> {
  public:
   static_assert(bitdepth >= kBitdepth8 && bitdepth <= LIBGAV1_MAX_BITDEPTH, "");
-  using GrainType =
-      typename std::conditional<bitdepth == 8, int8_t, int16_t>::type;
+  using GrainType = std::conditional_t<bitdepth == 8, int8_t, int16_t>;
 
   ConstructImageTest() {
     FilmGrainInit_C();
@@ -2188,8 +2183,7 @@ template <int bitdepth, typename Pixel>
 class BlendNoiseTest : public testing::TestWithParam<std::tuple<int, int>> {
  public:
   static_assert(bitdepth >= kBitdepth8 && bitdepth <= LIBGAV1_MAX_BITDEPTH, "");
-  using GrainType =
-      typename std::conditional<bitdepth == 8, int8_t, int16_t>::type;
+  using GrainType = std::conditional_t<bitdepth == 8, int8_t, int16_t>;
   ~BlendNoiseTest() override = default;
 
  protected:
