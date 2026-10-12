@@ -330,8 +330,7 @@ class MaskBlendTest : public testing::TestWithParam<MaskBlendTestParam>,
   void Test(const char* digest, int num_runs);
 
  private:
-  using PredType =
-      typename std::conditional<bitdepth == 8, int16_t, uint16_t>::type;
+  using PredType = std::conditional_t<bitdepth == 8, int16_t, uint16_t>;
   static constexpr int kStride = kMaxSuperBlockSizeInPixels;
   static constexpr int kDestStride = kMaxSuperBlockSizeInPixels * sizeof(Pixel);
   const MaskBlendTestParam param_ = GetParam();

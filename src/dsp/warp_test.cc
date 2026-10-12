@@ -284,8 +284,7 @@ class WarpTest : public testing::TestWithParam<WarpTestParam> {
   }
 
  protected:
-  using DestType =
-      typename std::conditional<is_compound, uint16_t, Pixel>::type;
+  using DestType = std::conditional_t<is_compound, uint16_t, Pixel>;
 
   void SetInputData(bool use_fixed_values, int value);
   void Test(bool use_fixed_values, int value, int num_runs = 1);

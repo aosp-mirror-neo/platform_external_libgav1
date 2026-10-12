@@ -51,9 +51,8 @@ template <typename T>
 int32_t RangeCheckValue(T value, int8_t range) {
 #if defined(LIBGAV1_ENABLE_TRANSFORM_RANGE_CHECK) && \
     LIBGAV1_ENABLE_TRANSFORM_RANGE_CHECK
-  static_assert(
-      std::is_same<T, int32_t>::value || std::is_same<T, std::int64_t>::value,
-      "");
+  static_assert(std::is_same_v<T, int32_t> || std::is_same_v<T, std::int64_t>,
+                "");
   assert(range <= 32);
   const auto min = static_cast<int32_t>(-(uint32_t{1} << (range - 1)));
   const auto max = static_cast<int32_t>((uint32_t{1} << (range - 1)) - 1);
@@ -452,7 +451,7 @@ void Adst4_C(void* dest, int8_t range) {
   // 12-bit. SIMD implementations can allow these to rollover on platforms
   // where this has defined behavior.
   using Intermediate =
-      typename std::conditional<sizeof(Residual) == 2, int32_t, int64_t>::type;
+      std::conditional_t<sizeof(Residual) == 2, int32_t, int64_t>;
   Intermediate s[7];
   s[0] = RangeCheckValue(kAdst4Multiplier[0] * dst[0], range + 12);
   s[1] = RangeCheckValue(kAdst4Multiplier[1] * dst[0], range + 12);
@@ -867,7 +866,7 @@ void Identity4Row_C(void* dest, int8_t shift) {
   // Note the intermediate value can only exceed 32 bits with 12-bit content.
   // For simplicity in unoptimized code, int64_t is used for both 10 & 12-bit.
   using Intermediate =
-      typename std::conditional<sizeof(Residual) == 2, int32_t, int64_t>::type;
+      std::conditional_t<sizeof(Residual) == 2, int32_t, int64_t>;
   assert(shift == 0 || shift == 1);
   auto* const dst = static_cast<Residual*>(dest);
   // If |shift| is 0, |rounding| should be 1 << 11. If |shift| is 1, |rounding|
@@ -905,7 +904,7 @@ void Identity4DcOnly_C(void* dest, int8_t /*range*/, bool should_round,
   // Note the intermediate value can only exceed 32 bits with 12-bit content.
   // For simplicity in unoptimized code, int64_t is used for both 10 & 12-bit.
   using Intermediate =
-      typename std::conditional<sizeof(Residual) == 2, int32_t, int64_t>::type;
+      std::conditional_t<sizeof(Residual) == 2, int32_t, int64_t>;
   auto* const dst = static_cast<Residual*>(dest);
 
   if (is_row) {
@@ -962,7 +961,7 @@ void Identity8DcOnly_C(void* dest, int8_t /*range*/, bool should_round,
   // Note the intermediate value can only exceed 32 bits with 12-bit content.
   // For simplicity in unoptimized code, int64_t is used for both 10 & 12-bit.
   using Intermediate =
-      typename std::conditional<sizeof(Residual) == 2, int32_t, int64_t>::type;
+      std::conditional_t<sizeof(Residual) == 2, int32_t, int64_t>;
   auto* const dst = static_cast<Residual*>(dest);
 
   if (is_row) {
@@ -999,7 +998,7 @@ void Identity16Row_C(void* dest, int8_t shift) {
   // Note the intermediate value can only exceed 32 bits with 12-bit content.
   // For simplicity in unoptimized code, int64_t is used for both 10 & 12-bit.
   using Intermediate =
-      typename std::conditional<sizeof(Residual) == 2, int32_t, int64_t>::type;
+      std::conditional_t<sizeof(Residual) == 2, int32_t, int64_t>;
   auto* const dst = static_cast<Residual*>(dest);
   const int32_t rounding = (1 + (1 << shift)) << 11;
   for (int i = 0; i < 16; ++i) {
@@ -1036,7 +1035,7 @@ void Identity16DcOnly_C(void* dest, int8_t /*range*/, bool should_round,
   // Note the intermediate value can only exceed 32 bits with 12-bit content.
   // For simplicity in unoptimized code, int64_t is used for both 10 & 12-bit.
   using Intermediate =
-      typename std::conditional<sizeof(Residual) == 2, int32_t, int64_t>::type;
+      std::conditional_t<sizeof(Residual) == 2, int32_t, int64_t>;
   auto* const dst = static_cast<Residual*>(dest);
 
   if (is_row) {
@@ -1093,7 +1092,7 @@ void Identity32DcOnly_C(void* dest, int8_t /*range*/, bool should_round,
   // Note the intermediate value can only exceed 32 bits with 12-bit content.
   // For simplicity in unoptimized code, int64_t is used for both 10 & 12-bit.
   using Intermediate =
-      typename std::conditional<sizeof(Residual) == 2, int32_t, int64_t>::type;
+      std::conditional_t<sizeof(Residual) == 2, int32_t, int64_t>;
   auto* const dst = static_cast<Residual*>(dest);
 
   if (is_row) {

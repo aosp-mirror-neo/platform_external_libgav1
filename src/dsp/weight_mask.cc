@@ -31,8 +31,7 @@ template <int width, int height, int bitdepth, bool mask_is_inverse>
 void WeightMask_C(const void* LIBGAV1_RESTRICT prediction_0,
                   const void* LIBGAV1_RESTRICT prediction_1,
                   uint8_t* LIBGAV1_RESTRICT mask, ptrdiff_t mask_stride) {
-  using PredType =
-      typename std::conditional<bitdepth == 8, int16_t, uint16_t>::type;
+  using PredType = std::conditional_t<bitdepth == 8, int16_t, uint16_t>;
   const auto* pred_0 = static_cast<const PredType*>(prediction_0);
   const auto* pred_1 = static_cast<const PredType*>(prediction_1);
   static_assert(width >= 8, "");

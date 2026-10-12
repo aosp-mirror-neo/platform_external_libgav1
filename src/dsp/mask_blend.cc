@@ -54,8 +54,7 @@ void MaskBlend_C(const void* LIBGAV1_RESTRICT prediction_0,
                  void* LIBGAV1_RESTRICT dest, const ptrdiff_t dest_stride) {
   static_assert(!(bitdepth == 8 && is_inter_intra), "");
   assert(mask != nullptr);
-  using PredType =
-      typename std::conditional<bitdepth == 8, int16_t, uint16_t>::type;
+  using PredType = std::conditional_t<bitdepth == 8, int16_t, uint16_t>;
   const auto* pred_0 = static_cast<const PredType*>(prediction_0);
   const auto* pred_1 = static_cast<const PredType*>(prediction_1);
   auto* dst = static_cast<Pixel*>(dest);

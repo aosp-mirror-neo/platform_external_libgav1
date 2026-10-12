@@ -35,8 +35,7 @@ void AverageBlend_C(const void* LIBGAV1_RESTRICT prediction_0,
   // 7.11.3.2 Rounding variables derivation process
   //   2 * FILTER_BITS(7) - (InterRound0(3|5) + InterRound1(7))
   constexpr int inter_post_round_bits = (bitdepth == 12) ? 2 : 4;
-  using PredType =
-      typename std::conditional<bitdepth == 8, int16_t, uint16_t>::type;
+  using PredType = std::conditional_t<bitdepth == 8, int16_t, uint16_t>;
   const auto* pred_0 = static_cast<const PredType*>(prediction_0);
   const auto* pred_1 = static_cast<const PredType*>(prediction_1);
   auto* dst = static_cast<Pixel*>(dest);

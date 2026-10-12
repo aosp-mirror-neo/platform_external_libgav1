@@ -93,8 +93,7 @@ void Warp_C(const void* LIBGAV1_RESTRICT const source, ptrdiff_t source_stride,
   };
   const auto* const src = static_cast<const Pixel*>(source);
   source_stride /= sizeof(Pixel);
-  using DestType =
-      typename std::conditional<is_compound, uint16_t, Pixel>::type;
+  using DestType = std::conditional_t<is_compound, uint16_t, Pixel>;
   auto* dst = static_cast<DestType*>(dest);
   if (!is_compound) dest_stride /= sizeof(dst[0]);
 
