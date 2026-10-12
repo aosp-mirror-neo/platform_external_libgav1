@@ -895,7 +895,7 @@ void Tile::DecodeSuperBlock(int row_index, int column_index,
     const int candidate_row_indices[] = {row_index + 1, row_index};
     const int candidate_column_indices[] = {
         std::max(0, column_index - intra_block_copy_lag_), column_index + 1};
-    for (size_t i = 0; i < std::extent<decltype(candidate_row_indices)>::value;
+    for (size_t i = 0; i < std::extent_v<decltype(candidate_row_indices)>;
          ++i) {
       const int candidate_row_index = candidate_row_indices[i];
       const int candidate_column_index = candidate_column_indices[i];
