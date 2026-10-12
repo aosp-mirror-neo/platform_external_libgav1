@@ -237,8 +237,7 @@ class WeightMaskTest : public testing::TestWithParam<WeightMaskTestParam>,
   const int width_ = GetParam().width;
   const int height_ = GetParam().height;
   const bool mask_is_inverse_ = GetParam().mask_is_inverse;
-  using PredType =
-      typename std::conditional<bitdepth == 8, int16_t, uint16_t>::type;
+  using PredType = std::conditional_t<bitdepth == 8, int16_t, uint16_t>;
   alignas(
       kMaxAlignment) PredType block_1_[kMaxPredictionSize * kMaxPredictionSize];
   alignas(
