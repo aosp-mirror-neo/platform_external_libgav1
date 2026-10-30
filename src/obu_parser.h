@@ -30,6 +30,7 @@
 #include "src/gav1/status_code.h"
 #include "src/utils/compiler_attributes.h"
 #include "src/utils/constants.h"
+#include "src/utils/dynamic_buffer.h"
 #include "src/utils/memory.h"
 #include "src/utils/raw_bit_reader.h"
 #include "src/utils/types.h"
@@ -219,6 +220,21 @@ enum MetadataType : uint8_t {
   // 32 and greater are reserved for AOM use.
 };
 
+struct ObuMetadata : public Allocable {
+  static constexpr int kMaxItutT35Metadata = 8;
+
+  ObuMetadataHdrCll hdr_cll = {};
+  bool hdr_cll_set = false;
+  ObuMetadataHdrMdcv hdr_mdcv = {};
+  bool hdr_mdcv_set = false;
+  ObuMetadataItutT35 itut_t35[kMaxItutT35Metadata] = {};
+  DynamicBuffer<uint8_t> itut_t35_payload[kMaxItutT35Metadata];
+  int itut_t35_count = 0;
+
+  bool AddItutT35Metadata(const ObuMetadataItutT35& value,
+                          const uint8_t* payload);
+};
+
 class ObuParser : public Allocable {
  public:
   ObuParser(const uint8_t* const data, size_t size, int operating_point,
@@ -263,6 +279,7 @@ class ObuParser : public Allocable {
   const ObuSequenceHeader& sequence_header() const { return sequence_header_; }
   const ObuFrameHeader& frame_header() const { return frame_header_; }
   const Vector<TileBuffer>& tile_buffers() const { return tile_buffers_; }
+  const ObuMetadata* metadata() const { return metadata_.get(); }
   // Returns true if the last call to ParseOneFrame() encountered a sequence
   // header change.
   bool sequence_header_changed() const { return sequence_header_changed_; }
@@ -277,6 +294,9 @@ class ObuParser : public Allocable {
   void MoveTileBuffers(Vector<TileBuffer>* tile_buffers) {
     *tile_buffers = std::move(tile_buffers_);
   }
+
+  // Moves |metadata_| into the return value.
+  std::unique_ptr<ObuMetadata> MoveMetadata() { return std::move(metadata_); }
 
  private:
   // Initializes the bit reader. This is a function of its own to make unit
@@ -362,6 +382,9 @@ class ObuParser : public Allocable {
   // nullptr. Does not do anything otherwise. Returns true on success, false
   // otherwise.
   bool EnsureCurrentFrameIsNotNull();
+  // Allocates |metadata_| if it is nullptr. Does not do anything otherwise.
+  // Returns true on success, false otherwise.
+  bool EnsureMetadataIsNotNull();
 
   // Parses the basic bitstream information from the given AV1 stream in |data|.
   // This is used for generating the AV1CodecConfigurationBox.
@@ -381,6 +404,7 @@ class ObuParser : public Allocable {
   ObuSequenceHeader sequence_header_ = {};
   ObuFrameHeader frame_header_ = {};
   Vector<TileBuffer> tile_buffers_;
+  std::unique_ptr<ObuMetadata> metadata_;
   // The expected starting tile number of the next Tile Group.
   int next_tile_group_start_ = 0;
   // If true, the sequence_header_ field is valid.

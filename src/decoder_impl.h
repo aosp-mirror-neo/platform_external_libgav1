@@ -52,6 +52,7 @@ struct EncodedFrame {
         state(state),
         temporal_unit(nullptr),
         frame(frame),
+        metadata(obu->MoveMetadata()),
         position_in_temporal_unit(position_in_temporal_unit) {
     obu->MoveTileBuffers(&tile_buffers);
     frame->MarkFrameAsStarted();
@@ -63,6 +64,7 @@ struct EncodedFrame {
   DecoderState state;
   TemporalUnit* temporal_unit;
   RefCountedBufferPtr frame;
+  std::unique_ptr<ObuMetadata> metadata;
   const int position_in_temporal_unit;
 };
 
@@ -114,6 +116,7 @@ struct TemporalUnit : public Allocable {
     }
 
     RefCountedBufferPtr frame;
+    std::unique_ptr<ObuMetadata> metadata;
     int position_in_temporal_unit = 0;
   } output_layers[kMaxLayers];
   // Number of entries in |output_layers|.
@@ -184,9 +187,11 @@ class DecoderImpl : public Allocable {
   // displayable frame. Used only in frame parallel mode.
   StatusCode DecodeFrame(EncodedFrame* encoded_frame);
 
-  // Populates |buffer_| with values from |frame|. Adds a reference to |frame|
-  // in |output_frame_|.
-  StatusCode CopyFrameToOutputBuffer(const RefCountedBufferPtr& frame);
+  // Populates |buffer_| with values from |frame| and |metadata|. Adds a
+  // reference to |frame| in |output_frame_| and moves |metadata| into
+  // |output_frame_metadata_|.
+  StatusCode CopyFrameToOutputBuffer(const RefCountedBufferPtr& frame,
+                                     std::unique_ptr<ObuMetadata> metadata);
   StatusCode DecodeTiles(const ObuSequenceHeader& sequence_header,
                          const ObuFrameHeader& frame_header,
                          const Vector<TileBuffer>& tile_buffers,
@@ -216,6 +221,11 @@ class DecoderImpl : public Allocable {
   // |wedge_masks_initialized_| to true.
   bool MaybeInitializeWedgeMasks(FrameType frame_type);
 
+  struct OutputFrame {
+    RefCountedBufferPtr frame;
+    std::unique_ptr<ObuMetadata> metadata;
+  };
+
   // Elements in this queue cannot be moved with std::move since the
   // |EncodedFrame.temporal_unit| stores a pointer to elements in this queue.
   Queue<TemporalUnit> temporal_units_;
@@ -223,14 +233,16 @@ class DecoderImpl : public Allocable {
 
   DecoderBuffer buffer_ = {};
   // |output_frame_| holds a reference to the output frame on behalf of
+  // |buffer_|. |output_frame_metadata_| owns the metadata associated with
   // |buffer_|.
   RefCountedBufferPtr output_frame_;
+  std::unique_ptr<ObuMetadata> output_frame_metadata_;
 
   // Queue of output frames that are to be returned in the DequeueFrame() calls.
   // If |settings_.output_all_layers| is false, this queue will never contain
   // more than 1 element. This queue is used only when |is_frame_parallel_| is
   // false.
-  Queue<RefCountedBufferPtr> output_frame_queue_;
+  Queue<OutputFrame> output_frame_queue_;
 
   BufferPool buffer_pool_;
   WedgeMaskArray wedge_masks_;

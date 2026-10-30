@@ -34,6 +34,7 @@
 #include "src/quantizer.h"
 #include "src/utils/common.h"
 #include "src/utils/constants.h"
+#include "src/utils/dynamic_buffer.h"
 #include "src/utils/logging.h"
 #include "src/utils/raw_bit_reader.h"
 #include "src/utils/reference_info.h"
@@ -201,6 +202,22 @@ class RefCountedBufferPtrCleanup {
 };
 
 }  // namespace
+
+bool ObuMetadata::AddItutT35Metadata(const ObuMetadataItutT35& value,
+                                     const uint8_t* const payload) {
+  if (itut_t35_count >= kMaxItutT35Metadata) return true;
+  ObuMetadataItutT35& entry = itut_t35[itut_t35_count];
+  entry = value;
+  entry.payload_bytes = nullptr;
+  if (value.payload_size > 0) {
+    DynamicBuffer<uint8_t>& buffer = itut_t35_payload[itut_t35_count];
+    if (!buffer.Resize(value.payload_size)) return false;
+    memcpy(buffer.get(), payload, value.payload_size);
+    entry.payload_bytes = buffer.get();
+  }
+  ++itut_t35_count;
+  return true;
+}
 
 bool ObuSequenceHeader::ParametersChanged(const ObuSequenceHeader& old) const {
   // Note that the operating_parameters field is not compared per Section 7.5:
@@ -2512,8 +2529,9 @@ bool ObuParser::ParseMetadata(const uint8_t* data, size_t size) {
       hdr_cll.max_cll = scratch;
       OBU_READ_LITERAL_OR_FAIL(16);
       hdr_cll.max_fall = scratch;
-      if (!EnsureCurrentFrameIsNotNull()) return false;
-      current_frame_->set_hdr_cll(hdr_cll);
+      if (!EnsureMetadataIsNotNull()) return false;
+      metadata_->hdr_cll = hdr_cll;
+      metadata_->hdr_cll_set = true;
       break;
     }
     case kMetadataTypeHdrMasteringDisplayColorVolume: {
@@ -2532,8 +2550,9 @@ bool ObuParser::ParseMetadata(const uint8_t* data, size_t size) {
       hdr_mdcv.luminance_max = static_cast<uint32_t>(scratch);
       OBU_READ_LITERAL_OR_FAIL(32);
       hdr_mdcv.luminance_min = static_cast<uint32_t>(scratch);
-      if (!EnsureCurrentFrameIsNotNull()) return false;
-      current_frame_->set_hdr_mdcv(hdr_mdcv);
+      if (!EnsureMetadataIsNotNull()) return false;
+      metadata_->hdr_mdcv = hdr_mdcv;
+      metadata_->hdr_mdcv_set = true;
       break;
     }
     case kMetadataTypeScalability:
@@ -2572,8 +2591,8 @@ bool ObuParser::ParseMetadata(const uint8_t* data, size_t size) {
         return false;
       }
       itut_t35.payload_size = i;
-      if (!EnsureCurrentFrameIsNotNull() ||
-          !current_frame_->AddItutT35Metadata(itut_t35, data)) {
+      if (!EnsureMetadataIsNotNull() ||
+          !metadata_->AddItutT35Metadata(itut_t35, data)) {
         return false;
       }
       // Skip all bits before the trailing bit.
@@ -2766,6 +2785,13 @@ bool ObuParser::EnsureCurrentFrameIsNotNull() {
   return true;
 }
 
+bool ObuParser::EnsureMetadataIsNotNull() {
+  if (metadata_ == nullptr) {
+    metadata_.reset(new (std::nothrow) ObuMetadata());
+  }
+  return metadata_ != nullptr;
+}
+
 bool ObuParser::HasData() const { return size_ > 0; }
 
 StatusCode ObuParser::ParseOneFrame(RefCountedBufferPtr* const current_frame) {
@@ -2782,6 +2808,7 @@ StatusCode ObuParser::ParseOneFrame(RefCountedBufferPtr* const current_frame) {
   obu_headers_.clear();
   frame_header_ = {};
   tile_buffers_.clear();
+  metadata_ = nullptr;
   next_tile_group_start_ = 0;
   sequence_header_changed_ = false;
 

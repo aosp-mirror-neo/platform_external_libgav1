@@ -44,6 +44,20 @@ constexpr uint8_t kFrame2WithMultipleItutT35[] = {
     OBU_TEMPORAL_DELIMITER, OBU_METADATA_ITUT_T35, OBU_METADATA_ITUT_T35,
     OBU_FRAME_2};
 
+constexpr uint8_t kFrameShowExistingWithMetadata[] = {
+    OBU_TEMPORAL_DELIMITER, OBU_METADATA_HDR_CLL, OBU_METADATA_HDR_MDCV,
+    OBU_METADATA_ITUT_T35, OBU_FRAME_HEADER_SHOW_EXISTING_FRAME_2};
+
+constexpr uint8_t kFrameShowExistingWithoutMetadata[] = {
+    OBU_TEMPORAL_DELIMITER, OBU_FRAME_HEADER_SHOW_EXISTING_FRAME_2};
+
+constexpr uint8_t kFrame1WithFilmGrainAndMetadata[] = {
+    OBU_TEMPORAL_DELIMITER, OBU_SEQUENCE_HEADER_WITH_FILM_GRAIN,
+    OBU_METADATA_HDR_CLL, OBU_METADATA_HDR_MDCV, OBU_FRAME_1_WITH_FILM_GRAIN};
+
+constexpr uint8_t kFrame2WithFilmGrainAndItutT35[] = {
+    OBU_TEMPORAL_DELIMITER, OBU_METADATA_ITUT_T35, OBU_FRAME_2_WITH_FILM_GRAIN};
+
 class DecoderTest : public testing::Test {
  public:
   void SetUp() override;
@@ -431,6 +445,265 @@ TEST_F(DecoderTest, MetadataObuMultipleItutT35) {
 
   EXPECT_EQ(frames_in_use_, 2);
   EXPECT_EQ(buffer_private_data_, buffer->buffer_private_data);
+
+  status = decoder_->SignalEOS();
+  EXPECT_EQ(status, kStatusOk);
+  EXPECT_EQ(frames_in_use_, 0);
+}
+
+TEST_F(DecoderTest, MetadataObuWithShowExistingFrame) {
+  StatusCode status;
+  const DecoderBuffer* buffer;
+
+  // Enqueue frame1 for decoding.
+  status = decoder_->EnqueueFrame(kFrame1, sizeof(kFrame1), 0,
+                                  const_cast<uint8_t*>(kFrame1));
+  ASSERT_EQ(status, kStatusOk);
+  status = decoder_->DequeueFrame(&buffer);
+  ASSERT_EQ(status, kStatusOk);
+  ASSERT_NE(buffer, nullptr);
+  EXPECT_EQ(buffer->has_hdr_cll, 0);
+  EXPECT_EQ(buffer->has_hdr_mdcv, 0);
+  EXPECT_EQ(buffer->itut_t35_count, 0);
+
+  // Enqueue frame2 (a showable inter frame that refreshes slot 2) for decoding.
+  status = decoder_->EnqueueFrame(kFrame2, sizeof(kFrame2), 0,
+                                  const_cast<uint8_t*>(kFrame2));
+  ASSERT_EQ(status, kStatusOk);
+  status = decoder_->DequeueFrame(&buffer);
+  ASSERT_EQ(status, kStatusOk);
+  ASSERT_NE(buffer, nullptr);
+  EXPECT_EQ(buffer->has_hdr_cll, 0);
+  EXPECT_EQ(buffer->has_hdr_mdcv, 0);
+  EXPECT_EQ(buffer->itut_t35_count, 0);
+
+  // Enqueue show_existing_frame=1 with HDR CLL, HDR MDCV, and ITU-T T.35
+  // metadata OBUs.
+  status = decoder_->EnqueueFrame(
+      kFrameShowExistingWithMetadata, sizeof(kFrameShowExistingWithMetadata), 0,
+      const_cast<uint8_t*>(kFrameShowExistingWithMetadata));
+  ASSERT_EQ(status, kStatusOk);
+  status = decoder_->DequeueFrame(&buffer);
+  ASSERT_EQ(status, kStatusOk);
+  ASSERT_NE(buffer, nullptr);
+  EXPECT_EQ(buffer->has_hdr_cll, 1);
+  EXPECT_EQ(buffer->has_hdr_mdcv, 1);
+  EXPECT_EQ(buffer->itut_t35_count, 1);
+  EXPECT_NE(buffer->itut_t35[0].payload_bytes, nullptr);
+  EXPECT_GT(buffer->itut_t35[0].payload_size, 0);
+  EXPECT_EQ(released_input_buffer_, &kFrameShowExistingWithMetadata);
+
+  // Enqueue show_existing_frame=1 again without metadata OBUs; previously
+  // attached metadata on the reference frame must not be carried over.
+  status = decoder_->EnqueueFrame(
+      kFrameShowExistingWithoutMetadata,
+      sizeof(kFrameShowExistingWithoutMetadata), 0,
+      const_cast<uint8_t*>(kFrameShowExistingWithoutMetadata));
+  ASSERT_EQ(status, kStatusOk);
+  status = decoder_->DequeueFrame(&buffer);
+  ASSERT_EQ(status, kStatusOk);
+  ASSERT_NE(buffer, nullptr);
+  EXPECT_EQ(buffer->has_hdr_cll, 0);
+  EXPECT_EQ(buffer->has_hdr_mdcv, 0);
+  EXPECT_EQ(buffer->itut_t35_count, 0);
+  EXPECT_EQ(released_input_buffer_, &kFrameShowExistingWithoutMetadata);
+
+  status = decoder_->SignalEOS();
+  EXPECT_EQ(status, kStatusOk);
+  EXPECT_EQ(frames_in_use_, 0);
+
+  // Verify metadata preservation when a single temporal unit contains multiple
+  // displayable frames queued in |output_frame_queue_|.
+  decoder_.reset(new (std::nothrow) Decoder());
+  ASSERT_NE(decoder_, nullptr);
+  DecoderSettings settings = {};
+  settings.output_all_layers = true;
+  settings.get_frame_buffer = GetFrameBuffer;
+  settings.release_frame_buffer = ReleaseFrameBuffer;
+  settings.callback_private_data = this;
+  settings.release_input_buffer = ReleaseInputBuffer;
+  ASSERT_EQ(decoder_->Init(&settings), kStatusOk);
+
+  std::vector<uint8_t> combined_frames;
+  combined_frames.insert(combined_frames.end(),
+                         std::begin(kFrame1WithHdrCllAndHdrMdcv),
+                         std::end(kFrame1WithHdrCllAndHdrMdcv));
+  combined_frames.insert(combined_frames.end(), std::begin(kFrame2WithItutT35),
+                         std::end(kFrame2WithItutT35));
+  combined_frames.insert(combined_frames.end(),
+                         std::begin(kFrameShowExistingWithMetadata),
+                         std::end(kFrameShowExistingWithMetadata));
+  status =
+      decoder_->EnqueueFrame(combined_frames.data(), combined_frames.size(), 0,
+                             combined_frames.data());
+  ASSERT_EQ(status, kStatusOk);
+
+  status = decoder_->DequeueFrame(&buffer);
+  ASSERT_EQ(status, kStatusOk);
+  ASSERT_NE(buffer, nullptr);
+  EXPECT_EQ(buffer->has_hdr_cll, 1);
+  EXPECT_EQ(buffer->has_hdr_mdcv, 1);
+  EXPECT_EQ(buffer->itut_t35_count, 0);
+
+  status = decoder_->DequeueFrame(&buffer);
+  ASSERT_EQ(status, kStatusOk);
+  ASSERT_NE(buffer, nullptr);
+  EXPECT_EQ(buffer->has_hdr_cll, 0);
+  EXPECT_EQ(buffer->has_hdr_mdcv, 0);
+  EXPECT_EQ(buffer->itut_t35_count, 1);
+
+  status = decoder_->DequeueFrame(&buffer);
+  ASSERT_EQ(status, kStatusOk);
+  ASSERT_NE(buffer, nullptr);
+  EXPECT_EQ(buffer->has_hdr_cll, 1);
+  EXPECT_EQ(buffer->has_hdr_mdcv, 1);
+  EXPECT_EQ(buffer->itut_t35_count, 1);
+
+  status = decoder_->SignalEOS();
+  EXPECT_EQ(status, kStatusOk);
+  EXPECT_EQ(frames_in_use_, 0);
+}
+
+TEST_F(DecoderTest, MetadataObuWithShowExistingFrameParallel) {
+  decoder_.reset(new (std::nothrow) Decoder());
+  ASSERT_NE(decoder_, nullptr);
+  DecoderSettings settings = {};
+  settings.frame_parallel = true;
+  settings.threads = 8;
+  settings.blocking_dequeue = true;
+  settings.get_frame_buffer = GetFrameBuffer;
+  settings.release_frame_buffer = ReleaseFrameBuffer;
+  settings.callback_private_data = this;
+  settings.release_input_buffer = ReleaseInputBuffer;
+  ASSERT_EQ(decoder_->Init(&settings), kStatusOk);
+
+  StatusCode status;
+  const DecoderBuffer* buffer;
+
+  // Enqueue all 4 frames before dequeuing any of them, exercising concurrent
+  // OBU parsing of show_existing_frame=1 (with and without metadata) while
+  // the underlying reference frame (frame2) is still in flight.
+  status = decoder_->EnqueueFrame(
+      kFrame1WithHdrCllAndHdrMdcv, sizeof(kFrame1WithHdrCllAndHdrMdcv), 0,
+      const_cast<uint8_t*>(kFrame1WithHdrCllAndHdrMdcv));
+  ASSERT_EQ(status, kStatusOk);
+  status =
+      decoder_->EnqueueFrame(kFrame2WithItutT35, sizeof(kFrame2WithItutT35), 0,
+                             const_cast<uint8_t*>(kFrame2WithItutT35));
+  ASSERT_EQ(status, kStatusOk);
+  status = decoder_->EnqueueFrame(
+      kFrameShowExistingWithMetadata, sizeof(kFrameShowExistingWithMetadata), 0,
+      const_cast<uint8_t*>(kFrameShowExistingWithMetadata));
+  ASSERT_EQ(status, kStatusOk);
+  status = decoder_->EnqueueFrame(
+      kFrameShowExistingWithoutMetadata,
+      sizeof(kFrameShowExistingWithoutMetadata), 0,
+      const_cast<uint8_t*>(kFrameShowExistingWithoutMetadata));
+  ASSERT_EQ(status, kStatusOk);
+
+  // Dequeue frame1 (HDR CLL + HDR MDCV).
+  status = decoder_->DequeueFrame(&buffer);
+  ASSERT_EQ(status, kStatusOk);
+  ASSERT_NE(buffer, nullptr);
+  EXPECT_EQ(buffer->has_hdr_cll, 1);
+  EXPECT_EQ(buffer->has_hdr_mdcv, 1);
+  EXPECT_EQ(buffer->itut_t35_count, 0);
+
+  // Dequeue frame2 (ITU-T T.35 must still be intact despite subsequent
+  // show_existing_frame=1 frames having been parsed concurrently).
+  status = decoder_->DequeueFrame(&buffer);
+  ASSERT_EQ(status, kStatusOk);
+  ASSERT_NE(buffer, nullptr);
+  EXPECT_EQ(buffer->has_hdr_cll, 0);
+  EXPECT_EQ(buffer->has_hdr_mdcv, 0);
+  EXPECT_EQ(buffer->itut_t35_count, 1);
+  EXPECT_NE(buffer->itut_t35[0].payload_bytes, nullptr);
+  EXPECT_GT(buffer->itut_t35[0].payload_size, 0);
+
+  // Dequeue show_existing_frame=1 with metadata (HDR CLL + HDR MDCV + ITU-T
+  // T.35).
+  status = decoder_->DequeueFrame(&buffer);
+  ASSERT_EQ(status, kStatusOk);
+  ASSERT_NE(buffer, nullptr);
+  EXPECT_EQ(buffer->has_hdr_cll, 1);
+  EXPECT_EQ(buffer->has_hdr_mdcv, 1);
+  EXPECT_EQ(buffer->itut_t35_count, 1);
+  EXPECT_NE(buffer->itut_t35[0].payload_bytes, nullptr);
+  EXPECT_GT(buffer->itut_t35[0].payload_size, 0);
+
+  // Dequeue show_existing_frame=1 without metadata (no metadata).
+  status = decoder_->DequeueFrame(&buffer);
+  ASSERT_EQ(status, kStatusOk);
+  ASSERT_NE(buffer, nullptr);
+  EXPECT_EQ(buffer->has_hdr_cll, 0);
+  EXPECT_EQ(buffer->has_hdr_mdcv, 0);
+  EXPECT_EQ(buffer->itut_t35_count, 0);
+
+  status = decoder_->SignalEOS();
+  EXPECT_EQ(status, kStatusOk);
+  EXPECT_EQ(frames_in_use_, 0);
+}
+
+TEST_F(DecoderTest, MetadataObuWithFilmGrain) {
+  StatusCode status;
+  const DecoderBuffer* buffer;
+
+  // Enqueue frame1 with film grain (apply_grain=1, refresh_frame_flags=0xff)
+  // and HDR CLL + HDR MDCV metadata. ApplyFilmGrain allocates a new output
+  // frame buffer; metadata must be preserved on the dequeued buffer.
+  status = decoder_->EnqueueFrame(
+      kFrame1WithFilmGrainAndMetadata, sizeof(kFrame1WithFilmGrainAndMetadata),
+      0, const_cast<uint8_t*>(kFrame1WithFilmGrainAndMetadata));
+  ASSERT_EQ(status, kStatusOk);
+  status = decoder_->DequeueFrame(&buffer);
+  ASSERT_EQ(status, kStatusOk);
+  ASSERT_NE(buffer, nullptr);
+  EXPECT_EQ(buffer->has_hdr_cll, 1);
+  EXPECT_EQ(buffer->has_hdr_mdcv, 1);
+  EXPECT_EQ(buffer->itut_t35_count, 0);
+
+  // Enqueue frame2 with film grain (apply_grain=1, refresh_frame_flags=0x0c)
+  // and ITU-T T.35 metadata.
+  status = decoder_->EnqueueFrame(
+      kFrame2WithFilmGrainAndItutT35, sizeof(kFrame2WithFilmGrainAndItutT35), 0,
+      const_cast<uint8_t*>(kFrame2WithFilmGrainAndItutT35));
+  ASSERT_EQ(status, kStatusOk);
+  status = decoder_->DequeueFrame(&buffer);
+  ASSERT_EQ(status, kStatusOk);
+  ASSERT_NE(buffer, nullptr);
+  EXPECT_EQ(buffer->has_hdr_cll, 0);
+  EXPECT_EQ(buffer->has_hdr_mdcv, 0);
+  EXPECT_EQ(buffer->itut_t35_count, 1);
+  EXPECT_NE(buffer->itut_t35[0].payload_bytes, nullptr);
+  EXPECT_GT(buffer->itut_t35[0].payload_size, 0);
+
+  // Enqueue show_existing_frame=1 (referencing frame2, which has
+  // apply_grain=1) with HDR CLL, HDR MDCV, and ITU-T T.35 metadata.
+  status = decoder_->EnqueueFrame(
+      kFrameShowExistingWithMetadata, sizeof(kFrameShowExistingWithMetadata), 0,
+      const_cast<uint8_t*>(kFrameShowExistingWithMetadata));
+  ASSERT_EQ(status, kStatusOk);
+  status = decoder_->DequeueFrame(&buffer);
+  ASSERT_EQ(status, kStatusOk);
+  ASSERT_NE(buffer, nullptr);
+  EXPECT_EQ(buffer->has_hdr_cll, 1);
+  EXPECT_EQ(buffer->has_hdr_mdcv, 1);
+  EXPECT_EQ(buffer->itut_t35_count, 1);
+  EXPECT_NE(buffer->itut_t35[0].payload_bytes, nullptr);
+  EXPECT_GT(buffer->itut_t35[0].payload_size, 0);
+
+  // Enqueue show_existing_frame=1 again without metadata OBUs.
+  status = decoder_->EnqueueFrame(
+      kFrameShowExistingWithoutMetadata,
+      sizeof(kFrameShowExistingWithoutMetadata), 0,
+      const_cast<uint8_t*>(kFrameShowExistingWithoutMetadata));
+  ASSERT_EQ(status, kStatusOk);
+  status = decoder_->DequeueFrame(&buffer);
+  ASSERT_EQ(status, kStatusOk);
+  ASSERT_NE(buffer, nullptr);
+  EXPECT_EQ(buffer->has_hdr_cll, 0);
+  EXPECT_EQ(buffer->has_hdr_mdcv, 0);
+  EXPECT_EQ(buffer->itut_t35_count, 0);
 
   status = decoder_->SignalEOS();
   EXPECT_EQ(status, kStatusOk);

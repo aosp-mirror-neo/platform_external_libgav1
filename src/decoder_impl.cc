@@ -793,13 +793,14 @@ StatusCode DecoderImpl::DequeueFrame(const DecoderBuffer** out_ptr) {
     // If |output_frame_queue_| is not empty, then return the first frame from
     // that queue.
     if (!output_frame_queue_.Empty()) {
-      RefCountedBufferPtr frame = std::move(output_frame_queue_.Front());
+      OutputFrame output_frame = std::move(output_frame_queue_.Front());
       output_frame_queue_.Pop();
       buffer_.user_private_data = temporal_unit.user_private_data;
       if (output_frame_queue_.Empty()) {
         temporal_units_.Pop();
       }
-      const StatusCode status = CopyFrameToOutputBuffer(frame);
+      const StatusCode status = CopyFrameToOutputBuffer(
+          output_frame.frame, std::move(output_frame.metadata));
       if (status != kStatusOk) {
         return status;
       }
@@ -855,10 +856,11 @@ StatusCode DecoderImpl::DequeueFrame(const DecoderBuffer** out_ptr) {
     return kStatusOk;
   }
   assert(temporal_unit.output_layer_count > 0);
-  StatusCode status = CopyFrameToOutputBuffer(
-      temporal_unit.output_layers[temporal_unit.output_layer_count - 1].frame);
-  temporal_unit.output_layers[temporal_unit.output_layer_count - 1].frame =
-      nullptr;
+  TemporalUnit::OutputLayer& output_layer =
+      temporal_unit.output_layers[temporal_unit.output_layer_count - 1];
+  StatusCode status = CopyFrameToOutputBuffer(output_layer.frame,
+                                              std::move(output_layer.metadata));
+  output_layer.frame = nullptr;
   if (status != kStatusOk) {
     temporal_units_.Pop();
     return SignalFailure(status);
@@ -957,6 +959,7 @@ StatusCode DecoderImpl::ParseAndSchedule(const uint8_t* data, size_t size,
       const StatusCode status = DecodeFrame(encoded_frame);
       encoded_frame->state = {};
       encoded_frame->frame = nullptr;
+      encoded_frame->metadata = nullptr;
       TemporalUnit& temporal_unit = *encoded_frame->temporal_unit;
       std::lock_guard<std::mutex> lock(mutex_);
       if (failure_status_ != kStatusOk) return;
@@ -991,6 +994,7 @@ StatusCode DecoderImpl::DecodeFrame(EncodedFrame* const encoded_frame) {
   const ObuSequenceHeader& sequence_header = encoded_frame->sequence_header;
   const ObuFrameHeader& frame_header = encoded_frame->frame_header;
   RefCountedBufferPtr current_frame = std::move(encoded_frame->frame);
+  std::unique_ptr<ObuMetadata> metadata = std::move(encoded_frame->metadata);
 
   std::unique_ptr<FrameScratchBuffer> frame_scratch_buffer =
       frame_scratch_buffer_pool_.Get();
@@ -1055,6 +1059,8 @@ StatusCode DecoderImpl::DecodeFrame(EncodedFrame* const encoded_frame) {
   temporal_unit.has_displayable_frame = true;
   temporal_unit.output_layers[temporal_unit.output_layer_count].frame =
       std::move(film_grain_frame);
+  temporal_unit.output_layers[temporal_unit.output_layer_count].metadata =
+      std::move(metadata);
   temporal_unit.output_layers[temporal_unit.output_layer_count]
       .position_in_temporal_unit = encoded_frame->position_in_temporal_unit;
   ++temporal_unit.output_layer_count;
@@ -1095,6 +1101,7 @@ StatusCode DecoderImpl::DecodeTemporalUnit(const TemporalUnit& temporal_unit,
       LIBGAV1_DLOG(ERROR, "Failed to parse OBU.");
       return status;
     }
+    std::unique_ptr<ObuMetadata> metadata = obu->MoveMetadata();
     if (!MaybeInitializeQuantizerMatrix(obu->frame_header())) {
       LIBGAV1_DLOG(ERROR, "InitializeQuantizerMatrix() failed.");
       return kStatusOutOfMemory;
@@ -1157,7 +1164,8 @@ StatusCode DecoderImpl::DecodeTemporalUnit(const TemporalUnit& temporal_unit,
             &film_grain_frame,
             frame_scratch_buffer->threading_strategy.film_grain_thread_pool());
         if (status != kStatusOk) return status;
-        output_frame_queue_.Push(std::move(film_grain_frame));
+        output_frame_queue_.Push(
+            {std::move(film_grain_frame), std::move(metadata)});
       }
     }
   }
@@ -1166,8 +1174,10 @@ StatusCode DecoderImpl::DecodeTemporalUnit(const TemporalUnit& temporal_unit,
     *out_ptr = nullptr;
     return kStatusOk;
   }
-  status = CopyFrameToOutputBuffer(output_frame_queue_.Front());
+  OutputFrame output_frame = std::move(output_frame_queue_.Front());
   output_frame_queue_.Pop();
+  status = CopyFrameToOutputBuffer(output_frame.frame,
+                                   std::move(output_frame.metadata));
   if (status != kStatusOk) {
     return status;
   }
@@ -1177,7 +1187,7 @@ StatusCode DecoderImpl::DecodeTemporalUnit(const TemporalUnit& temporal_unit,
 }
 
 StatusCode DecoderImpl::CopyFrameToOutputBuffer(
-    const RefCountedBufferPtr& frame) {
+    const RefCountedBufferPtr& frame, std::unique_ptr<ObuMetadata> metadata) {
   YuvBuffer* yuv_buffer = frame->buffer();
 
   buffer_.chroma_sample_position = frame->chroma_sample_position();
@@ -1226,27 +1236,28 @@ StatusCode DecoderImpl::CopyFrameToOutputBuffer(
   buffer_.spatial_id = frame->spatial_id();
   buffer_.temporal_id = frame->temporal_id();
   buffer_.buffer_private_data = frame->buffer_private_data();
-  if (frame->hdr_cll_set()) {
+  if (metadata != nullptr && metadata->hdr_cll_set) {
     buffer_.has_hdr_cll = 1;
-    buffer_.hdr_cll = frame->hdr_cll();
+    buffer_.hdr_cll = metadata->hdr_cll;
   } else {
     buffer_.has_hdr_cll = 0;
   }
-  if (frame->hdr_mdcv_set()) {
+  if (metadata != nullptr && metadata->hdr_mdcv_set) {
     buffer_.has_hdr_mdcv = 1;
-    buffer_.hdr_mdcv = frame->hdr_mdcv();
+    buffer_.hdr_mdcv = metadata->hdr_mdcv;
   } else {
     buffer_.has_hdr_mdcv = 0;
   }
-  if (frame->itut_t35_count() > 0) {
-    buffer_.itut_t35_count = frame->itut_t35_count();
+  if (metadata != nullptr && metadata->itut_t35_count > 0) {
+    buffer_.itut_t35_count = metadata->itut_t35_count;
     for (int i = 0; i < buffer_.itut_t35_count; ++i) {
-      buffer_.itut_t35[i] = frame->itut_t35()[i];
+      buffer_.itut_t35[i] = metadata->itut_t35[i];
     }
   } else {
     buffer_.itut_t35_count = 0;
   }
   output_frame_ = frame;
+  output_frame_metadata_ = std::move(metadata);
   return kStatusOk;
 }
 
@@ -1255,6 +1266,7 @@ void DecoderImpl::ReleaseOutputFrame() {
     plane = nullptr;
   }
   output_frame_ = nullptr;
+  output_frame_metadata_ = nullptr;
 }
 
 StatusCode DecoderImpl::DecodeTiles(

@@ -781,15 +781,19 @@ class ObuParserTest : public testing::Test {
   }
 
   void VerifyMetadataHdrCll(const ObuMetadataHdrCll& expected) {
-    EXPECT_TRUE(obu_->current_frame_->hdr_cll_set());
-    const ObuMetadataHdrCll& actual = obu_->current_frame_->hdr_cll();
+    const ObuMetadata* const metadata = obu_->metadata();
+    ASSERT_NE(metadata, nullptr);
+    EXPECT_TRUE(metadata->hdr_cll_set);
+    const ObuMetadataHdrCll& actual = metadata->hdr_cll;
     OBU_TEST_COMPARE(max_cll);
     OBU_TEST_COMPARE(max_fall);
   }
 
   void VerifyMetadataHdrMdcv(const ObuMetadataHdrMdcv& expected) {
-    EXPECT_TRUE(obu_->current_frame_->hdr_mdcv_set());
-    const ObuMetadataHdrMdcv& actual = obu_->current_frame_->hdr_mdcv();
+    const ObuMetadata* const metadata = obu_->metadata();
+    ASSERT_NE(metadata, nullptr);
+    EXPECT_TRUE(metadata->hdr_mdcv_set);
+    const ObuMetadataHdrMdcv& actual = metadata->hdr_mdcv;
     for (int i = 0; i < 3; ++i) {
       OBU_TEST_COMPARE(primary_chromaticity_x[i]);
       OBU_TEST_COMPARE(primary_chromaticity_y[i]);
@@ -802,9 +806,11 @@ class ObuParserTest : public testing::Test {
 
   void VerifyMetadataItutT35(const ObuMetadataItutT35* expected_values,
                              int expected_count) {
-    EXPECT_EQ(obu_->current_frame_->itut_t35_count(), expected_count);
+    const ObuMetadata* const metadata = obu_->metadata();
+    ASSERT_NE(metadata, nullptr);
+    EXPECT_EQ(metadata->itut_t35_count, expected_count);
     for (int i = 0; i < expected_count; ++i) {
-      const ObuMetadataItutT35& actual = obu_->current_frame_->itut_t35()[i];
+      const ObuMetadataItutT35& actual = metadata->itut_t35[i];
       const ObuMetadataItutT35& expected = expected_values[i];
       OBU_TEST_COMPARE(country_code);
       if (actual.country_code == 0xFF) {
@@ -818,6 +824,8 @@ class ObuParserTest : public testing::Test {
       }
     }
   }
+
+  void VerifyNoMetadata() { EXPECT_EQ(obu_->metadata(), nullptr); }
 
 #undef OBU_TEST_COMPARE
 
@@ -1225,6 +1233,117 @@ TEST_F(ObuParserTest, FrameParameterShowExistingFrame) {
   decoder_state_.reference_frame[kFrameToShow]->set_showable_frame(true);
   ASSERT_TRUE(ParseFrameParameters(data.GenerateData()));
   VerifyFrameParameters(gold);
+}
+
+TEST_F(ObuParserTest, FrameParameterShowExistingFrameWithMetadata) {
+  ObuSequenceHeader sequence_header;
+  DefaultSequenceHeader(&sequence_header);
+
+  ObuMetadataHdrCll gold_cll;
+  gold_cll.max_cll = 25;
+  gold_cll.max_fall = 100;
+
+  ObuMetadataHdrMdcv gold_mdcv = {};
+  gold_mdcv.white_point_chromaticity_x = 250;
+  gold_mdcv.white_point_chromaticity_y = 2500;
+  gold_mdcv.luminance_max = 6000;
+  gold_mdcv.luminance_min = 3000;
+
+  ObuMetadataItutT35 gold_itut_t35 = {};
+  gold_itut_t35.country_code = 0xA6;
+  DynamicBuffer<uint8_t> payload_bytes;
+  ASSERT_TRUE(payload_bytes.Resize(4));
+  gold_itut_t35.payload_bytes = payload_bytes.get();
+  for (int i = 0; i < 4; ++i) {
+    gold_itut_t35.payload_bytes[i] = i + 1;
+  }
+  gold_itut_t35.payload_size = 4;
+
+  // Temporal unit 1: OBU_METADATA (HDR_CLL, HDR_MDCV, ITUT_T35) +
+  // OBU_FRAME_HEADER (show_existing_frame=1, frame_to_show=kFrameToShow).
+  // Temporal unit 2: OBU_FRAME_HEADER (show_existing_frame=1,
+  // frame_to_show=kFrameToShow) without metadata.
+  BytesAndBits data;
+  // OBU_METADATA (HDR_CLL): header=0x2a, size=6.
+  data.AppendByte(0x2a);
+  data.AppendByte(0x06);
+  data.AppendLiteral(8, kMetadataTypeHdrContentLightLevel);
+  data.AppendLiteral(16, gold_cll.max_cll);
+  data.AppendLiteral(16, gold_cll.max_fall);
+  data.AppendByte(0x80);
+  // OBU_METADATA (HDR_MDCV): header=0x2a, size=26.
+  data.AppendByte(0x2a);
+  data.AppendByte(0x1a);
+  data.AppendLiteral(8, kMetadataTypeHdrMasteringDisplayColorVolume);
+  for (int i = 0; i < 3; ++i) {
+    data.AppendLiteral(16, gold_mdcv.primary_chromaticity_x[i]);
+    data.AppendLiteral(16, gold_mdcv.primary_chromaticity_y[i]);
+  }
+  data.AppendLiteral(16, gold_mdcv.white_point_chromaticity_x);
+  data.AppendLiteral(16, gold_mdcv.white_point_chromaticity_y);
+  data.AppendLiteral(32, gold_mdcv.luminance_max);
+  data.AppendLiteral(32, gold_mdcv.luminance_min);
+  data.AppendByte(0x80);
+  // OBU_METADATA (ITUT_T35): header=0x2a, size=7.
+  data.AppendByte(0x2a);
+  data.AppendByte(0x07);
+  data.AppendLiteral(8, kMetadataTypeItutT35);
+  data.AppendLiteral(8, gold_itut_t35.country_code);
+  for (int i = 0; i < 4; ++i) {
+    data.AppendLiteral(8, gold_itut_t35.payload_bytes[i]);
+  }
+  data.AppendByte(0x80);
+  // OBU_FRAME_HEADER (show_existing_frame=1): header=0x1a, size=1.
+  data.AppendByte(0x1a);
+  data.AppendByte(0x01);
+  data.AppendBit(1);                    // show_existing_frame.
+  data.AppendLiteral(3, kFrameToShow);  // frame_to_show.
+  data.AppendLiteral(4, 0x08);          // trailing bits.
+  // Second OBU_FRAME_HEADER (show_existing_frame=1) without metadata.
+  data.AppendByte(0x1a);
+  data.AppendByte(0x01);
+  data.AppendBit(1);                    // show_existing_frame.
+  data.AppendLiteral(3, kFrameToShow);  // frame_to_show.
+  data.AppendLiteral(4, 0x08);          // trailing bits.
+
+  ObuFrameHeader gold_frame;
+  DefaultFrameHeader(&gold_frame, kFrameInter);
+  gold_frame.show_existing_frame = true;
+  gold_frame.frame_to_show = kFrameToShow;
+  gold_frame.refresh_frame_flags = 0;
+
+  decoder_state_.reference_frame[kFrameToShow] = buffer_pool_->GetFreeBuffer();
+  ASSERT_NE(decoder_state_.reference_frame[kFrameToShow], nullptr);
+  decoder_state_.reference_frame[kFrameToShow]->set_frame_type(kFrameInter);
+  decoder_state_.reference_frame[kFrameToShow]->set_showable_frame(true);
+
+  const std::vector<uint8_t>& bitstream = data.GenerateData();
+  ASSERT_TRUE(Init(bitstream, false));
+  obu_->set_sequence_header(sequence_header);
+  ASSERT_EQ(obu_->ParseOneFrame(&current_frame_), kStatusOk);
+  VerifyFrameParameters(gold_frame);
+  VerifyMetadataHdrCll(gold_cll);
+  VerifyMetadataHdrMdcv(gold_mdcv);
+  VerifyMetadataItutT35(&gold_itut_t35, 1);
+
+  // Showing the same reference frame again without metadata OBUs must clear
+  // metadata from the previous ParseOneFrame() call.
+  ASSERT_EQ(obu_->ParseOneFrame(&current_frame_), kStatusOk);
+  VerifyFrameParameters(gold_frame);
+  VerifyNoMetadata();
+
+  // Verify that ObuParser does not hold any BufferPool references after
+  // ParseOneFrame() when metadata is present with show_existing_frame=1, even
+  // if the caller does not call MoveMetadata() and destroys BufferPool before
+  // ObuParser.
+  ASSERT_TRUE(Init(bitstream, false));
+  obu_->set_sequence_header(sequence_header);
+  ASSERT_EQ(obu_->ParseOneFrame(&current_frame_), kStatusOk);
+  VerifyMetadataHdrCll(gold_cll);
+  current_frame_ = nullptr;
+  decoder_state_.reference_frame.fill(nullptr);
+  buffer_pool_.reset();
+  obu_.reset();
 }
 
 TEST_F(ObuParserTest, FrameParametersShowExistingFrameWithDisplayFrameId) {
@@ -2607,6 +2726,24 @@ TEST_F(ObuParserTest, MetadataItutT35) {
 
   ASSERT_TRUE(ParseMetadata(data.GenerateData()));
   VerifyMetadataItutT35(&gold, 1);
+
+  // Empty payload (payload_size == 0) and capping at
+  // ObuMetadata::kMaxItutT35Metadata.
+  BytesAndBits empty_payload_data;
+  empty_payload_data.AppendLiteral(8, kMetadataTypeItutT35);
+  empty_payload_data.AppendLiteral(8, gold.country_code);
+  empty_payload_data.AppendLiteral(8, gold.country_code_extension_byte);
+  empty_payload_data.AppendLiteral(8, 0x80);
+  gold.payload_bytes = nullptr;
+  gold.payload_size = 0;
+  ASSERT_TRUE(ParseMetadata(empty_payload_data.GenerateData()));
+  VerifyMetadataItutT35(&gold, 1);
+
+  ObuMetadata max_metadata;
+  for (int i = 0; i <= ObuMetadata::kMaxItutT35Metadata; ++i) {
+    EXPECT_TRUE(max_metadata.AddItutT35Metadata(gold, nullptr));
+  }
+  EXPECT_EQ(max_metadata.itut_t35_count, ObuMetadata::kMaxItutT35Metadata);
 }
 
 TEST_F(ObuParserTest, MetadataTimecode) {

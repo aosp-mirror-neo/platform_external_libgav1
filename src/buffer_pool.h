@@ -23,7 +23,6 @@
 #include <climits>
 #include <condition_variable>  // NOLINT (unapproved c++11 header)
 #include <cstdint>
-#include <cstring>
 #include <memory>
 #include <mutex>  // NOLINT (unapproved c++11 header)
 
@@ -33,7 +32,6 @@
 #include "src/symbol_decoder_context.h"
 #include "src/utils/compiler_attributes.h"
 #include "src/utils/constants.h"
-#include "src/utils/dynamic_buffer.h"
 #include "src/utils/memory.h"
 #include "src/utils/reference_info.h"
 #include "src/utils/segmentation_map.h"
@@ -134,44 +132,6 @@ class RefCountedBuffer : public MaxAlignedAllocable {
   void set_spatial_id(int value) { spatial_id_ = value; }
   int temporal_id() const { return temporal_id_; }
   void set_temporal_id(int value) { temporal_id_ = value; }
-
-  ObuMetadataHdrCll hdr_cll() const { return hdr_cll_; }
-  void set_hdr_cll(const ObuMetadataHdrCll& hdr_cll) {
-    hdr_cll_set_ = true;
-    hdr_cll_ = hdr_cll;
-  }
-  bool hdr_cll_set() const { return hdr_cll_set_; }
-
-  ObuMetadataHdrMdcv hdr_mdcv() const { return hdr_mdcv_; }
-  void set_hdr_mdcv(const ObuMetadataHdrMdcv& hdr_mdcv) {
-    hdr_mdcv_set_ = true;
-    hdr_mdcv_ = hdr_mdcv;
-  }
-  bool hdr_mdcv_set() const { return hdr_mdcv_set_; }
-
-  const ObuMetadataItutT35* itut_t35() const { return itut_t35_; }
-  bool AddItutT35Metadata(const ObuMetadataItutT35& itut_t35,
-                          const uint8_t* const payload) {
-    if (itut_t35_count_ >= 8) {
-      // Only store the first 8 itut_t35 payloads.
-      return true;
-    }
-    itut_t35_[itut_t35_count_] = itut_t35;
-    if (itut_t35.payload_size > 0) {
-      if (!itut_t35_payload_[itut_t35_count_].Resize(itut_t35.payload_size)) {
-        return false;
-      }
-      memcpy(itut_t35_payload_[itut_t35_count_].get(), payload,
-             itut_t35.payload_size);
-      itut_t35_[itut_t35_count_].payload_bytes =
-          itut_t35_payload_[itut_t35_count_].get();
-    } else {
-      itut_t35_[itut_t35_count_].payload_bytes = nullptr;
-    }
-    ++itut_t35_count_;
-    return true;
-  }
-  int itut_t35_count() const { return itut_t35_count_; }
 
   SegmentationMap* segmentation_map() { return &segmentation_map_; }
   const SegmentationMap* segmentation_map() const { return &segmentation_map_; }
@@ -355,14 +315,6 @@ class RefCountedBuffer : public MaxAlignedAllocable {
   int32_t rows4x4_ = 0;
   int spatial_id_ = 0;
   int temporal_id_ = 0;
-
-  ObuMetadataHdrCll hdr_cll_ = {};
-  bool hdr_cll_set_ = false;  // Set to true when set_hdr_cll() is called.
-  ObuMetadataHdrMdcv hdr_mdcv_ = {};
-  bool hdr_mdcv_set_ = false;  // Set to true when set_hdr_mdcv() is called.
-  ObuMetadataItutT35 itut_t35_[8] = {};
-  DynamicBuffer<uint8_t> itut_t35_payload_[8];
-  int itut_t35_count_ = 0;  // Set when add_itut_t35() is called.
 
   // segmentation_map_ contains a rows4x4_ by columns4x4_ 2D array.
   SegmentationMap segmentation_map_;
