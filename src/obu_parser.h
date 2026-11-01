@@ -223,6 +223,9 @@ enum MetadataType : uint8_t {
 struct ObuMetadata : public Allocable {
   static constexpr int kMaxItutT35Metadata = 8;
 
+  bool AddItutT35Metadata(const ObuMetadataItutT35& value,
+                          const uint8_t* payload);
+
   ObuMetadataHdrCll hdr_cll = {};
   bool hdr_cll_set = false;
   ObuMetadataHdrMdcv hdr_mdcv = {};
@@ -230,9 +233,6 @@ struct ObuMetadata : public Allocable {
   ObuMetadataItutT35 itut_t35[kMaxItutT35Metadata] = {};
   DynamicBuffer<uint8_t> itut_t35_payload[kMaxItutT35Metadata];
   int itut_t35_count = 0;
-
-  bool AddItutT35Metadata(const ObuMetadataItutT35& value,
-                          const uint8_t* payload);
 };
 
 class ObuParser : public Allocable {

@@ -147,6 +147,11 @@ class DecoderImpl : public Allocable {
   std::vector<int> GetFrameQps();
 
  private:
+  struct OutputFrame {
+    RefCountedBufferPtr frame;
+    std::unique_ptr<ObuMetadata> metadata;
+  };
+
   explicit DecoderImpl(const DecoderSettings* settings);
   StatusCode Init();
   // Called when the first frame is enqueued. It does the OBU parsing for one
@@ -220,11 +225,6 @@ class DecoderImpl : public Allocable {
   // Allocates and generates the |wedge_masks_| if necessary and sets
   // |wedge_masks_initialized_| to true.
   bool MaybeInitializeWedgeMasks(FrameType frame_type);
-
-  struct OutputFrame {
-    RefCountedBufferPtr frame;
-    std::unique_ptr<ObuMetadata> metadata;
-  };
 
   // Elements in this queue cannot be moved with std::move since the
   // |EncodedFrame.temporal_unit| stores a pointer to elements in this queue.
